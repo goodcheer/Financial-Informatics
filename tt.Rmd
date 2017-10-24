@@ -1,0 +1,61 @@
+---
+title: "Financial Informatics"
+output:
+  html_document:
+    df_print: paged
+---
+## Chap2. W2-2: Investment Return
+
+1. investment Holding period return
+
+$$R_h = \frac{(Gain\ from\ Investment\ -\ Cost\ for \ Investment) }{Cost\ for \ Investment}$$
+```{r}
+dat <- data.frame( horizon = c(0.5, 1, 25), # holding years 
+                   cost = c(2063.11, 2058.9, 459.27), # investment cost
+                   gain = c(2043.94, 2043.94, 2043.94)) # investment gain
+
+dat["Holding Period Return"] <- round((dat$gain - dat$cost) / dat$cost * 100,2)
+dat
+```
+
+2. Compound Return: return on return
+  - $$P(1+i)^n\\\ P= original\ investment,\\ i=annual\ return,\\ n= number\ of\ years\ in\ investment$$
+
+3. Annualized Return:
+  - assumption: the interest rate for certain period will remain same for the rest of assuming period
+$$R = (1+R_H)^\frac{1}{n}-1\\ \  \\ R_H: holding\ period\ return\\ n: the\ number\ of\ years\ the investment\ was\ held\\$$
+```{r}
+dat["Annaulized Return"] <- apply(dat,1,function(x) (1+x[4])^(1/x[1])-1)
+dat
+```
+
+4. Risk Premium
+  - Risk free return (R~f~): Theoretical rate of return with no risk
+  - Risk Premium: the return in excess of the risk free return at investment is expected to yield
+$$ Risk\ Premium = E(R) - R_f$$
+
+5. Expected Return: the amount investor would anticipate receiving from investment considering various scenarios.
+  * Arithmetic mean
+    + P(s) : probability of status s
+    + E(R~s~) : expected return under status s
+
+$$ E(R) = \sum_{s=1}^{n}P(s)\times E(R_s)$$
+
+```{r}
+dat2 <- data.frame(c("Excellent", "Good", "Poor", "Terrible"),
+                   c(0.3, 0.2, 0.4, 0.1),
+                   c(20, 10, -5, -40))
+
+colnames(dat2) <- c("Status", "P(s)", "E(R_s)")
+dat2
+
+dat2[5,3] <- sum(dat2[2]*dat2[3])
+dat2[5,2] <- "Expected Return"
+dat2
+```
+
+6. 
+```{r}
+
+```
+
