@@ -1,6 +1,6 @@
 # Financial-Informatics
 
-![slide1](pngs/s1.png)
+![slide1](pngs/s1.PNG)
 ![slide2](pngs/s2.png)
 ![slide3](pngs/s3.png)
 ![slide4](pngs/s4.png)
