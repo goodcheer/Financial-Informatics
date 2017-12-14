@@ -1,33 +1,48 @@
-setwd("C:/Users/kyuchul/Documents/Carrer/학교_2/2017-2/금융인포메틱스/Final Project")
+##===========================================##
+## Setting Enviornments                      ##
+##===========================================##
+
+
+# Load packages to use
 packages <- c("quantmod", "PerformanceAnalytics", "TTR", "corrplot", "rpart", "rpart.plot")
 
-for(i in packages){
-  library(i,character.only = T)
+for (i in packages){
+  if(!require( i , character.only = TRUE))
+  {install.packages(i, dependencies = TRUE)}
 }
 
+# Load Tickers from CSV file
 tickers <- read.csv("SP500Constituent.csv")$Ticker.symbol
 tickers <- as.character(tickers)
 
 
+##===========================================##
+## STEP I : Data Preperation                 ##
+##===========================================##
+
+# 1. Fetch all ticker's data from 2013-01-01 to 2016-12-31
+#    you can just load the prepared one because it takes quite a while 
+#    load("sp500all.RData")
 
 all.dat <- sapply(tickers, function(x) {
   tryCatch(getSymbols(x,auto.assign = FALSE,from="2013-01-01", to="2016-12-31"), 
            error=function(e) conditionMessage(e))} )
 
-#delete failed ones 
+#     delete failed ones 
 flag <- unlist(lapply(all.dat, function(x) class(x)[1])) == "character"
 all.dat[flag] <- NULL
 
-#save(all.dat, file = "sp500all.RData")
-# load(file = "sp500all.RData")
 
+# 2. Sample by Volume
 
-all.vol <- lapply(all.dat, function(x) mean(x[,5], na.rm = T))
-
+#    Calculate Mean volume of each tickers.
+all.vol.mean <- lapply(all.dat, function(x) mean(x[,5], na.rm = T))
 all.vol.mean <- t(as.data.frame(all.vol))
+
+#    Then order in ascending order
 ascend.vol <- order(all.vol.mean)
 
-# Sample 50 each from different Range of Total Volumes
+#     Sample 50 each from different Range of Total Volumes
 target.all <- c(all.dat[ascend.vol[40:90]],
                     all.dat[ascend.vol[140:190]],
                     all.dat[ascend.vol[240:290]],
@@ -36,29 +51,28 @@ target.all <- c(all.dat[ascend.vol[40:90]],
 
 
 
-# sharpe ratio
+#3. Filter by sharpe ratio
 mycolnames <- c("Open", "High", "Low", "Close", "Volume", "Adjusted")
 target.all <- lapply(target.all, setNames, mycolnames)
 
+#   Calculate daily Returns of targets
 all.dailyReturn <- lapply(target.all, function(x) round(dailyReturn(x$Adjusted, type="arithmetic"),2))
-
 all.dailyReturn <- do.call("merge",all.dailyReturn)
 all.dailyReturn <- na.omit(all.dailyReturn)
 
-# recent 1 year Sharpe Ratios
+#   recent 1 year Sharpe Ratios
 all.sharpes <- apply(all.dailyReturn, 2, 
                      function(x) SharpeRatio.annualized(x[length(x)-251:length(x)],Rf = 0))
 
-# Top 50  absolute sharpe securities
+#    Top 50  absolute sharpe securities
 toUse <- rank(abs(all.sharpes)) > 205
 targets <- target.all[toUse]
 
 # save(targets, file="targets_50.RData")
 
-
-## ---------------------- ##
-## Generate Indicators.   ##
-## ---------------------- ##
+## ------------------------------ ##
+## Function for making Indicators ##
+## ------------------------------ ##
 
 makeIndics <- function(target){
   
@@ -159,9 +173,9 @@ makeIndics <- function(target){
 }
 
 
-## --------------------------- ##
-## Stratified random Partition ##
-## --------------------------- ##
+## ---------------------------------------- ##
+## Function for Stratified random Partition ##
+## ---------------------------------------- ##
 
 STRPart <- function(df, factorCol, p){
   
@@ -186,23 +200,30 @@ STRPart <- function(df, factorCol, p){
   
   return(list(train = df.train, test = df.test))
 }
+##===========================================##
+## STEP II : Modeling                        ##
+##===========================================##
 
-
+### WARNINGS : since the training and test set for modeling is Randomly partitioned, 
+###           the model and the results of backtesting might not be reproducable. 
+###           Therefore, if you want to see the same result from the presentation or report, 
+###           use saved RData and do not execute this STEP II and go to the BackTesting
+# load("finalModels.RData")
 doModel <- function(target, pRat){
   
+  # make indicators of target ticker
   dat <- makeIndics(target)
   indics <- dat[,-15]
   daily <- dat[,15]
   
-  # Remove no return change (zero)
+  # Remove observations without change in return (zero)
   dat <- subset(dat, daily != 0)
   
+  # Make true label
   dat$daily <- ifelse(dat$daily > 0, "Up", "Down")
   dat$daily <- as.factor(x = dat$daily)
   names(dat)[15] <- "Class"
   
-  
-  #write.csv(dat, file="decision tree charting.csv")
   
   ## ------------------------- ##
   ## Choose 3 indicators Set   ##
@@ -264,16 +285,16 @@ doModel <- function(target, pRat){
   # confusion matrix
   true.test <- dt.set$test[,15]
   cm.test <- lapply(pred.test, function(x) table(x, true.test))
-  browser()
   # accuracy calcuation
   acc.test <- unlist(lapply(cm.test, function(x) sum(diag(x))/sum(x)))
   
+  # Returns a model with best test accuracy, randomly stratified dataset, and test accuracy of the model
   return(list(model = dt.models[[which.max(acc.test)]],
               data = dt.set,
               acc.test = max(acc.test)))
 }
 
-
+# Make models for all 50 tickers
 targets.model <- lapply(targets, function(x) {
   tryCatch(doModel(x, 0.7), error=function(e) conditionMessage(e) )
 })
@@ -285,11 +306,15 @@ names(targets.model)
 flag <- unlist(lapply(targets.model, function(x) class(x)[1])) == "character"
 targets.model[flag] <- NULL
 
+##===========================================##
+## STEP III : Portfolio Set & Test           ##
+##===========================================##
+
 # Use models with over (lambda=0.57) accuracy
 modelUse <- unlist(lapply(targets.model, function(x) x$acc.test > 0.57 ))
 
 finalModel <- targets.model[modelUse]
-# save(finalModel, file="finalModels.RData")
+
 
 # Draw Trees
 lapply(finalModel, function(x) prp(x$model, type = 0, extra=6))
@@ -297,35 +322,36 @@ lapply(finalModel, function(x) prp(x$model, type = 0, extra=6))
 # ---------------------------#
 # BackTesting                #
 # ---------------------------#
-
 assess <- names(finalModel)
 
 # sec is ticker of securtiy (character)
 backtest <- function(sec){
-  t <- target.all[[sec]]
-  t.model <- finalModel[[sec]]$model
-  t.data <- makeIndics(t)
+  t <- target.all[[sec]] # set OHLCVA data
+  t.model <- finalModel[[sec]]$model # set final model of the security
+  t.data <- makeIndics(t) # make indicators of the security
   names(t.model$variable.importance)
   
-  t.pred <- predict(t.model, newdata = t.data[,-15], type="class")
-  t.signal <- ifelse(t.pred == "Up", 1, -1)
+  t.pred <- predict(t.model, newdata = t.data[,-15], type="class") # make predictions
+  t.signal <- ifelse(t.pred == "Up", 1, -1) # make signals based on predictions
   
-  t.nullreturn <- data.frame(return = t.data$daily)
+  # null means utilizing no strateges at all. Just buy at the starting period and sell at the ending period
+  t.nullreturn <- data.frame(return = t.data$daily) 
   t.nullreturn <- xts(x = t.nullreturn, order.by = as.POSIXct(rownames(t.data)))
+  # my model's daily return
   t.myreturn <- data.frame(return = t.data$daily * t.signal)
   t.myreturn <- xts(x = t.myreturn, order.by = as.POSIXct(rownames(t.data)))
   
-  AR.port <- table.AnnualizedReturns(t.myreturn)
-  AR.null <- table.AnnualizedReturns(t.nullreturn)
-  Drdwn <- table.Drawdowns(t.myreturn)
+  AR.port <- table.AnnualizedReturns(t.myreturn) # Annualized Returns of my model
+  AR.null <- table.AnnualizedReturns(t.nullreturn)# Annualized Returns of null 
+  Drdwn <- table.Drawdowns(t.myreturn) # DrawDowns of my model
   
-  vR <- VaR(t.myreturn) ## worst scenario loss
-  Rcum <- Return.cumulative(t.myreturn)
+  vR <- VaR(t.myreturn) ## worst scenario loss of my model
+  Rcum <- Return.cumulative(t.myreturn) # Cumulative Return of my model
   
-  chart.Summary.port <- function(){charts.PerformanceSummary(t.myreturn)}
-  chart.Summary.null <- function(){charts.PerformanceSummary(t.nullreturn)}
+  chart.Summary.port <- function(){charts.PerformanceSummary(t.myreturn)} # summary on my model
+  chart.Summary.null <- function(){charts.PerformanceSummary(t.nullreturn)} # summary on null
   
-  hitratio <- sum(t.myreturn > 0) / dim(t.myreturn)[1]
+  hitratio <- sum(t.myreturn > 0) / dim(t.myreturn)[1] # hit ratio of my model
   
   return(list(AR.port = AR.port, AR.null = AR.null,
               table.Drawdown = Drdwn, VaR = vR, Return.cum = Rcum, hitRatio= hitratio,
@@ -337,11 +363,14 @@ names(reports) <- assess
 
 #save(reports, file="reports.RData")
 
+# Annualized Returns for my portfolio
 ARS.port <- do.call(cbind, lapply(reports, function(x) x$AR.port))
 colnames(ARS.port) <- assess
 
+# Annualized Returns for null status
 ARS.null <- do.call(cbind, lapply(reports, function(x) x$AR.null))
 colnames(ARS.null) <- assess
 
-ARS.compr <- as.matrix(ARS.port) - as.matrix(ARS.null)
-
+# Compare Returns 
+ARS.compr <- t(as.matrix(ARS.port)[1,] - as.matrix(ARS.null)[1,])
+View(ARS.compr)
